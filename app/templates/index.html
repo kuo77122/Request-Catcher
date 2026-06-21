@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Request Catcher</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+  h1 { font-size: 1.5rem; margin-bottom: 16px; color: #58a6ff; display: flex; align-items: center; gap: 12px; }
+  h1 small { font-size: 0.8rem; font-weight: normal; color: #8b949e; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+  button, .badge { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+  button:hover { background: #30363d; }
+  button.danger:hover { background: #da3633; border-color: #da3633; }
+  .badge { cursor: default; background: #1c2128; }
+  .count { background: #238636; border-color: #2ea043; }
+  input[type=search] { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 6px 12px; color: #c9d1d9; font-size: 0.85rem; width: 240px; }
+  input[type=search]:focus { outline: none; border-color: #58a6ff; }
+  .tab-bar { display: flex; margin-bottom: 12px; }
+  .tab { padding: 6px 16px; border: 1px solid #30363d; background: #161b22; cursor: pointer; font-size: 0.85rem; color: #8b949e; }
+  .tab:first-child { border-radius: 6px 0 0 6px; }
+  .tab:last-child { border-radius: 0 6px 6px 0; }
+  .tab.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .panels > div { display: none; }
+  .panels > div.active { display: block; }
+  .empty { text-align: center; padding: 60px 20px; color: #8b949e; }
+  .empty h2 { font-size: 1.2rem; margin-bottom: 8px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  thead { position: sticky; top: 0; z-index: 1; }
+  th { background: #161b22; border-bottom: 2px solid #30363d; padding: 8px 10px; text-align: left; font-weight: 600; color: #8b949e; text-transform: uppercase; font-size: 0.75rem; letter-spacing: .05em; white-space: nowrap; }
+  td { border-bottom: 1px solid #21262d; padding: 6px 10px; vertical-align: top; }
+  tr.row-detail { display: none; }
+  tr.row-detail.open { display: table-row; }
+  tr.row-detail td { background: #0d1117; padding: 12px 10px 12px 40px; border-bottom: 1px solid #30363d; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: #161b22; }
+  .method { font-weight: 600; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; text-transform: uppercase; display: inline-block; min-width: 48px; text-align: center; }
+  .get { color: #58a6ff; background: rgba(88,166,255,.15); }
+  .post { color: #3fb950; background: rgba(63,185,80,.15); }
+  .put { color: #d29922; background: rgba(210,153,34,.15); }
+  .patch { color: #d29922; background: rgba(210,153,34,.15); }
+  .delete { color: #da3633; background: rgba(218,54,51,.15); }
+  .head { color: #8b949e; background: rgba(139,148,158,.15); }
+  .options { color: #8b949e; background: rgba(139,148,158,.15); }
+  .path { font-family: monospace; word-break: break-all; color: #c9d1d9; }
+  .time { color: #8b949e; white-space: nowrap; font-size: 0.8rem; }
+  .req-num { color: #484f58; font-size: 0.8rem; }
+  pre { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 0.8rem; max-height: 300px; overflow-y: auto; margin: 0; }
+  .detail-section { margin-bottom: 10px; }
+  .detail-section:last-child { margin-bottom: 0; }
+  .detail-section h4 { font-size: 0.75rem; color: #8b949e; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .05em; }
+  #table-wrap { max-height: calc(100vh - 180px); overflow-y: auto; border: 1px solid #30363d; border-radius: 8px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0d1117; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  .col-num { width: 40px; }
+  .col-method { width: 80px; }
+  .col-time { width: 100px; }
+  @media (max-width: 600px) { .col-time, .col-num { display: none; } input[type=search] { width: 100%; } }
+</style>
+</head>
+<body>
+<h1>Request Catcher <small>last 100 requests</small></h1>
+<div class="toolbar">
+  <span class="badge count" id="req-count">0 requests</span>
+  <button onclick="clearAll()" class="danger">Clear All</button>
+  <button onclick="refresh()">Refresh</button>
+  <label style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+    <input type="checkbox" id="auto-refresh" checked> Auto-refresh
+  </label>
+</div>
+<div class="tab-bar">
+  <div class="tab active" data-tab="captured" onclick="switchTab('captured')">Captured</div>
+  <div class="tab" data-tab="config" onclick="switchTab('config')">Config</div>
+</div>
+<div class="panels">
+  <div id="panel-captured" class="active">
+    <div class="toolbar">
+      <input type="search" id="filter" placeholder="Filter by path, method, body..." oninput="renderTable()">
+    </div>
+    <div id="table-wrap">
+      <table>
+        <thead>
+          <tr><th class="col-num">#</th><th class="col-method">Method</th><th>Path</th><th class="col-time">Time</th></tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <div id="empty-state" class="empty" style="display:none">
+      <h2>No requests</h2>
+      <p>Send a request to this server to see it here.</p>
+    </div>
+  </div>
+  <div id="panel-config">
+    <div class="toolbar">
+      <button onclick="reloadConfig()">Reload Config</button>
+      <a href="/__config" target="_blank" style="color:#58a6ff;font-size:0.85rem;">/__config</a>
+    </div>
+    <pre id="config-display"></pre>
+  </div>
+</div>
+
+<script>
+let requests = [];
+let autoRefresh = true;
+let intervalId = null;
+
+async function fetchRequests() {
+  try {
+    const r = await fetch('/__requests');
+    requests = await r.json();
+    document.getElementById('req-count').textContent = requests.length + ' request' + (requests.length !== 1 ? 's' : '');
+    renderTable();
+  } catch {}
+}
+
+function renderTable() {
+  const filter = (document.getElementById('filter').value || '').toLowerCase();
+  const filtered = filter
+    ? requests.filter(r => r.path.toLowerCase().includes(filter) || r.method.toLowerCase().includes(filter) || (r.body && r.body.toLowerCase().includes(filter)))
+    : requests;
+
+  const empty = document.getElementById('empty-state');
+  const tbody = document.getElementById('table-body');
+  if (!filtered.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = filtered.map(r => {
+    const mc = r.method.toLowerCase();
+    const qs = r.query_params && Object.keys(r.query_params).length ? '?' + new URLSearchParams(r.query_params).toString() : '';
+    const ts = new Date(r.timestamp).toLocaleTimeString();
+    const bodyPreview = r.body ? r.body.slice(0, 200) + (r.body.length > 200 ? '...' : '') : '';
+    return `<tr class="clickable" onclick="toggleDetail(${r.id})">
+      <td class="req-num">${r.id}</td>
+      <td><span class="method ${mc}">${r.method}</span></td>
+      <td class="path">${r.path}${qs}</td>
+      <td class="time">${ts}</td>
+    </tr>
+    <tr class="row-detail" id="detail-${r.id}">
+      <td colspan="4">
+        <div class="detail-section">
+          <h4>Headers</h4>
+          <pre>${r.headers ? JSON.stringify(r.headers, null, 2) : '(empty)'}</pre>
+        </div>
+        <div class="detail-section">
+          <h4>Body</h4>
+          <pre>${bodyPreview || '(empty)'}</pre>
+        </div>
+        <div class="detail-section">
+          <h4>Client</h4>
+          <pre>${r.client_host || 'unknown'}</pre>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleDetail(id) {
+  const el = document.getElementById('detail-' + id);
+  el.classList.toggle('open');
+}
+
+async function clearAll() {
+  await fetch('/__requests', { method: 'DELETE' });
+  requests = [];
+  document.getElementById('req-count').textContent = '0 requests';
+  renderTable();
+}
+
+async function refresh() {
+  await fetchRequests();
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panels > div').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'config') loadConfigView();
+}
+
+async function loadConfigView() {
+  try {
+    const r = await fetch('/__config');
+    const data = await r.json();
+    document.getElementById('config-display').textContent = JSON.stringify(data, null, 2);
+  } catch {}
+}
+
+async function reloadConfig() {
+  await fetch('/__config/reload', { method: 'POST' });
+  loadConfigView();
+}
+
+document.getElementById('auto-refresh').addEventListener('change', function() {
+  autoRefresh = this.checked;
+  if (autoRefresh) startAutoRefresh();
+  else stopAutoRefresh();
+});
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  intervalId = setInterval(fetchRequests, 2000);
+}
+
+function stopAutoRefresh() {
+  if (intervalId) { clearInterval(intervalId); intervalId = null; }
+}
+
+startAutoRefresh();
+fetchRequests();
+</script>
+</body>
+</html>

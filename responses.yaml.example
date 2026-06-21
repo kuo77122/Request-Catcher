@@ -1,0 +1,64 @@
+rules:
+  - path: /api/hello
+    method: GET
+    status_code: 200
+    headers:
+      Content-Type: application/json
+    body: '{"message": "hello from request-catcher"}'
+
+  - path_pattern: /api/users/.*
+    method: GET
+    status_code: 200
+    headers:
+      Content-Type: application/json
+    body: '{"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]}'
+
+  - path: /api/error
+    method: GET
+    status_code: 500
+    headers:
+      Content-Type: application/json
+    body: '{"error": "internal server error"}'
+
+  - path: /api/slow
+    method: GET
+    status_code: 200
+    delay_ms: 3000
+    body: '{"message": "this was delayed by 3 seconds"}'
+
+  # ── Naya portal mocks (for naya-identity-plugin) ───────────────────
+  # Contracts: Naya/api-spec.md §3.1–3.2. Plugin design B + identity flow.
+
+  # GET /api/v1/identity/resolve?platform=line&platform_user_id=Uxxxxx
+  # Returns a known, active employee (drives the policy "pass" branch).
+  # For the "unknown user" case (auto_create), change status_code to 404.
+  - path_pattern: /api/v1/identity/resolve.*
+    method: GET
+    status_code: 200
+    headers:
+      Content-Type: application/json
+    body: '{"user_id": "u_emp_001", "type": "employee", "role": "member", "department": "業務部", "permissions": ["knowledge:read", "order:read"]}'
+
+  # POST /api/v1/auth/token  (header X-API-Key, body {user_id}) → per-user JWT (design B)
+  - path: /api/v1/auth/token
+    method: POST
+    status_code: 200
+    headers:
+      Content-Type: application/json
+    body: '{"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidV9lbXBfMDAxIiwicm9sZSI6Im1lbWJlciIsImRlcGFydG1lbnQiOiLmpa3li5npg6giLCJwZXJtaXNzaW9ucyI6WyJrbm93bGVkZ2U6cmVhZCIsIm9yZGVyOnJlYWQiXSwiZXhwIjoxNzk4NzYxNTk5fQ.MOCK_SIGNATURE_not_verified", "expires_at": "2026-12-31T23:59:59Z"}'
+
+  # POST /api/v1/identity/bind  {platform, platform_user_id, invite_code}
+  - path: /api/v1/identity/bind
+    method: POST
+    status_code: 200
+    headers:
+      Content-Type: application/json
+    body: '{"user_id": "u_emp_001", "display_name": "王小明"}'
+
+  # POST /api/v1/identity/invite-codes  {user_id} (Admin)
+  - path: /api/v1/identity/invite-codes
+    method: POST
+    status_code: 200
+    headers:
+      Content-Type: application/json
+    body: '{"code": "NAYA-7F3K-9Q2X", "expires_at": "2026-12-31T23:59:59Z"}'

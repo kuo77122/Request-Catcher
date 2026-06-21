@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+.venv
+.uv
+
+# Local mock config — copy responses.yaml.example → responses.yaml and edit.
+responses.yaml

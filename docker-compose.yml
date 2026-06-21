@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  request-catcher:
+    build: .
+    container_name: request-catcher
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./responses.yaml:/app/responses.yaml
+    restart: unless-stopped

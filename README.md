@@ -2,6 +2,8 @@
 
 HTTP request capture and response mock server for testing and debugging.
 
+![Request Catcher UI](sample.jpg)
+
 ## Quick Start
 
 ```bash

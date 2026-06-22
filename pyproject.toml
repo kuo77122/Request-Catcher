@@ -2,6 +2,7 @@
 name = "request-catcher"
 version = "0.1.0"
 description = "HTTP request capture and response mock server"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",

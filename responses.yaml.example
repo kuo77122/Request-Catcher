@@ -62,3 +62,36 @@ rules:
     headers:
       Content-Type: application/json
     body: '{"code": "NAYA-7F3K-9Q2X", "expires_at": "2026-12-31T23:59:59Z"}'
+
+  # ── Examples of per-rule auth and conditional match ───────────────
+
+  # Rule requiring an auth header (X-API-Key)
+  - path: /api/secret
+    method: GET
+    auth:
+      header: X-API-Key
+      values: ["alpha-key", "beta-key"]
+    body: '{"secret":"visible only with a valid key"}'
+
+  # Per-user JWT — different match.user_id returns a different token
+  - path: /api/v1/auth/token
+    method: POST
+    match:
+      user_id: u_emp_001
+    body: '{"token":"<jwt-for-alice>"}'
+
+  - path: /api/v1/auth/token
+    method: POST
+    match:
+      user_id: u_emp_002
+    body: '{"token":"<jwt-for-bob>"}'
+
+  # Combined: conditional match + auth
+  - path: /api/v1/identity/resolve
+    method: GET
+    match:
+      platform: line
+    auth:
+      header: X-API-Key
+      values: ["alpha-key"]
+    body: '{"user_id":"u_emp_001","platform":"line"}'

@@ -2,6 +2,7 @@ __pycache__
 *.pyc
 .venv
 .uv
+.worktrees/
 
 # Local mock config — copy responses.yaml.example → responses.yaml and edit.
 responses.yaml

@@ -383,3 +383,58 @@ rules:
         assert data[0]["auth_status"] is None
     finally:
         Path(path).unlink()
+
+
+def test_reload_bad_config_returns_400(client: TestClient):
+    valid_yaml = """
+rules:
+  - path: /api/x
+    method: GET
+    body: '{}'
+"""
+    path = _load_yaml_in_main(valid_yaml)
+    try:
+        resp = client.get("/api/x")
+        assert resp.status_code == 200
+
+        Path(path).write_text("""
+rules:
+  - path: /api/y
+    method: GET
+    match:
+      count: 5
+    body: '{}'
+""")
+
+        resp = client.post("/__config/reload")
+        assert resp.status_code == 400
+        assert "error" in resp.json()
+
+        resp = client.get("/api/x")
+        assert resp.status_code == 200
+    finally:
+        Path(path).unlink()
+
+
+def test_reload_bad_auth_returns_400(client: TestClient):
+    valid_yaml = """
+rules:
+  - path: /api/x
+    method: GET
+    body: '{}'
+"""
+    path = _load_yaml_in_main(valid_yaml)
+    try:
+        Path(path).write_text("""
+rules:
+  - path: /api/y
+    method: GET
+    auth:
+      header: ""
+      values: ["a"]
+    body: '{}'
+""")
+        resp = client.post("/__config/reload")
+        assert resp.status_code == 400
+    finally:
+        Path(path).unlink()

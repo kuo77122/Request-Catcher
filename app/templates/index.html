@@ -44,6 +44,11 @@
   .delete { color: #da3633; background: rgba(218,54,51,.15); }
   .head { color: #8b949e; background: rgba(139,148,158,.15); }
   .options { color: #8b949e; background: rgba(139,148,158,.15); }
+  .auth-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; vertical-align: middle; }
+  .auth-dot.ok { background: #3fb950; }
+  .auth-dot.missing { background: #d29922; }
+  .auth-dot.invalid { background: #da3633; }
+  .col-auth { width: 60px; }
   .path { font-family: monospace; word-break: break-all; color: #c9d1d9; }
   .time { color: #8b949e; white-space: nowrap; font-size: 0.8rem; }
   .req-num { color: #484f58; font-size: 0.8rem; }
@@ -83,7 +88,7 @@
     <div id="table-wrap">
       <table>
         <thead>
-          <tr><th class="col-num">#</th><th class="col-method">Method</th><th>Path</th><th class="col-time">Time</th></tr>
+          <tr><th class="col-num">#</th><th class="col-method">Method</th><th>Path</th><th class="col-auth">Auth</th><th class="col-time">Time</th></tr>
         </thead>
         <tbody id="table-body"></tbody>
       </table>
@@ -136,14 +141,24 @@ function renderTable() {
     const qs = r.query_params && Object.keys(r.query_params).length ? '?' + new URLSearchParams(r.query_params).toString() : '';
     const ts = new Date(r.timestamp).toLocaleTimeString();
     const bodyPreview = r.body ? r.body.slice(0, 200) + (r.body.length > 200 ? '...' : '') : '';
+    const authDot = r.auth_status
+      ? `<span class="auth-dot ${r.auth_status}" title="${r.auth_status}"></span>`
+      : '';
+    const authSection = r.auth_status
+      ? `<div class="detail-section">
+        <h4>Auth</h4>
+        <pre>status: ${r.auth_status}\nheader: ${r.auth_header || ''}\nvalid values: ${r.auth_values_count ?? ''}</pre>
+      </div>`
+      : '';
     return `<tr class="clickable" onclick="toggleDetail(${r.id})">
       <td class="req-num">${r.id}</td>
       <td><span class="method ${mc}">${r.method}</span></td>
       <td class="path">${r.path}${qs}</td>
+      <td>${authDot}</td>
       <td class="time">${ts}</td>
     </tr>
     <tr class="row-detail" id="detail-${r.id}">
-      <td colspan="4">
+      <td colspan="5">
         <div class="detail-section">
           <h4>Headers</h4>
           <pre>${r.headers ? JSON.stringify(r.headers, null, 2) : '(empty)'}</pre>
@@ -152,6 +167,7 @@ function renderTable() {
           <h4>Body</h4>
           <pre>${bodyPreview || '(empty)'}</pre>
         </div>
+        ${authSection}
         <div class="detail-section">
           <h4>Client</h4>
           <pre>${r.client_host || 'unknown'}</pre>

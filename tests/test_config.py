@@ -71,7 +71,7 @@ def test_match_exact_path():
         path = f.name
     try:
         load_config(path)
-        rule = match_rule("GET", "/api/hello")
+        rule = match_rule("GET", "/api/hello", {}, None)
         assert rule is not None
         assert rule.status_code == 200
         assert rule.body == '{"msg":"hello"}'
@@ -85,9 +85,9 @@ def test_match_path_pattern():
         path = f.name
     try:
         load_config(path)
-        rule = match_rule("GET", "/api/users/42")
+        rule = match_rule("GET", "/api/users/42", {}, None)
         assert rule is not None
-        rule2 = match_rule("GET", "/api/users/abc/def")
+        rule2 = match_rule("GET", "/api/users/abc/def", {}, None)
         assert rule2 is not None
     finally:
         Path(path).unlink()
@@ -99,9 +99,9 @@ def test_match_method_filter():
         path = f.name
     try:
         load_config(path)
-        rule = match_rule("POST", "/api/echo")
+        rule = match_rule("POST", "/api/echo", {}, None)
         assert rule is not None
-        rule2 = match_rule("GET", "/api/echo")
+        rule2 = match_rule("GET", "/api/echo", {}, None)
         assert rule2 is None
     finally:
         Path(path).unlink()
@@ -113,7 +113,7 @@ def test_no_match():
         path = f.name
     try:
         load_config(path)
-        assert match_rule("DELETE", "/api/nonexistent") is None
+        assert match_rule("DELETE", "/api/nonexistent", {}, None) is None
     finally:
         Path(path).unlink()
 
@@ -356,3 +356,214 @@ def test_evaluate_auth_empty_value_is_invalid():
     rule = _rule_with_auth("X-API-Key", ["alpha"])
     status, _, _ = evaluate_auth(rule, {"x-api-key": ""})
     assert status == "invalid"
+
+
+MATCH_RULES_YAML = """
+rules:
+  - path: /api/auth/token
+    method: POST
+    match:
+      user_id: u_emp_001
+    body: '{"token":"alice"}'
+
+  - path: /api/auth/token
+    method: POST
+    match:
+      user_id: u_emp_002
+    body: '{"token":"bob"}'
+
+  - path: /api/auth/token
+    method: POST
+    body: '{"token":"default"}'
+
+  - path_pattern: /api/identity/resolve.*
+    method: GET
+    match:
+      platform: line
+    body: '{"platform":"line"}'
+"""
+
+
+def _load_match_rules():
+    from app.config import load_config
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(MATCH_RULES_YAML)
+        path = f.name
+    load_config(path)
+    return path
+
+
+def test_match_body_match_succeeds():
+    path = _load_match_rules()
+    try:
+        rule = match_rule("POST", "/api/auth/token", {}, '{"user_id":"u_emp_001"}')
+        assert rule is not None
+        assert "alice" in rule.body
+    finally:
+        Path(path).unlink()
+
+
+def test_match_body_match_falls_through():
+    path = _load_match_rules()
+    try:
+        rule = match_rule("POST", "/api/auth/token", {}, '{"user_id":"u_emp_999"}')
+        assert rule is not None
+        assert '"default"' in rule.body
+    finally:
+        Path(path).unlink()
+
+
+def test_match_per_user_first_wins():
+    path = _load_match_rules()
+    try:
+        rule = match_rule("POST", "/api/auth/token", {}, '{"user_id":"u_emp_002"}')
+        assert rule is not None
+        assert "bob" in rule.body
+    finally:
+        Path(path).unlink()
+
+
+def test_match_query_string_succeeds():
+    path = _load_match_rules()
+    try:
+        rule = match_rule(
+            "GET", "/api/identity/resolve", {"platform": "line"}, None
+        )
+        assert rule is not None
+    finally:
+        Path(path).unlink()
+
+
+def test_match_query_string_fails():
+    path = _load_match_rules()
+    try:
+        rule = match_rule(
+            "GET", "/api/identity/resolve", {"platform": "facebook"}, None
+        )
+        assert rule is None
+    finally:
+        Path(path).unlink()
+
+
+def test_match_body_wins_over_query():
+    path = _load_match_rules()
+    try:
+        # body has user_id=u_emp_001, query has user_id=other
+        # match requires user_id=u_emp_001 -> body wins
+        rule = match_rule(
+            "POST", "/api/auth/token",
+            {"user_id": "other"},
+            '{"user_id":"u_emp_001"}',
+        )
+        assert rule is not None
+        assert "alice" in rule.body
+    finally:
+        Path(path).unlink()
+
+
+def test_match_and_both_keys_required():
+    yaml = """
+rules:
+  - path: /api/x
+    method: GET
+    match:
+      a: "1"
+      b: "2"
+    body: '{}'
+"""
+    from app.config import load_config
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(yaml)
+        path = f.name
+    try:
+        load_config(path)
+        # both keys hit
+        assert match_rule("GET", "/api/x", {}, '{"a":"1","b":"2"}') is not None
+        # only one key hits
+        assert match_rule("GET", "/api/x", {}, '{"a":"1"}') is None
+        # neither key hits
+        assert match_rule("GET", "/api/x", {}, '{"a":"3","b":"4"}') is None
+    finally:
+        Path(path).unlink()
+
+
+def test_match_body_parse_failure_falls_back_to_query():
+    from app.config import load_config
+    yaml = """
+rules:
+  - path: /api/x
+    method: GET
+    match:
+      user_id: u_emp_001
+    body: '{}'
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(yaml)
+        path = f.name
+    try:
+        load_config(path)
+        # body is not JSON; query should still match
+        assert match_rule("GET", "/api/x", {"user_id": "u_emp_001"}, "not-json") is not None
+    finally:
+        Path(path).unlink()
+
+
+def test_match_body_array_value_stringified_exact():
+    from app.config import load_config
+    yaml = """
+rules:
+  - path: /api/x
+    method: GET
+    match:
+      ids: "[1, 2, 3]"
+    body: '{}'
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(yaml)
+        path = f.name
+    try:
+        load_config(path)
+        # stringified Python list form
+        assert match_rule("GET", "/api/x", {}, '{"ids":[1,2,3]}') is not None
+        # different array doesn't match
+        assert match_rule("GET", "/api/x", {}, '{"ids":[4,5,6]}') is None
+    finally:
+        Path(path).unlink()
+
+
+def test_match_path_pattern_with_match():
+    path = _load_match_rules()
+    try:
+        # path_pattern + match both must pass
+        assert match_rule(
+            "GET", "/api/identity/resolve?ignored=1",
+            {"platform": "line"}, None
+        ) is not None
+        # pattern matches but match fails
+        assert match_rule(
+            "GET", "/api/identity/resolve?ignored=1",
+            {"platform": "web"}, None
+        ) is None
+    finally:
+        Path(path).unlink()
+
+
+def test_match_no_block_backward_compat():
+    # a rule with no match field still matches on path/method alone
+    from app.config import load_config
+    yaml = """
+rules:
+  - path: /api/x
+    method: GET
+    body: '{}'
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(yaml)
+        path = f.name
+    try:
+        load_config(path)
+        # any query/body — still matches because no match block
+        assert match_rule("GET", "/api/x", {"a": "b"}, '{"c":"d"}') is not None
+        assert match_rule("GET", "/api/x", {}, None) is not None
+    finally:
+        Path(path).unlink()

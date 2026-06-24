@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from app.auth import evaluate_auth
 from app.config import load_config, match_rule, reload_config, get_rules
 from app.models import ResponseRule
 
@@ -296,3 +297,62 @@ def test_load_rule_with_match_and_auth():
     )
     assert rule.auth is not None
     assert rule.match == {"user_id": "u_emp_001"}
+
+
+def _rule_with_auth(header: str, values: list[str]) -> ResponseRule:
+    return ResponseRule(
+        path="/x", method="GET",
+        auth={"header": header, "values": values},
+        body="{}",
+    )
+
+
+def test_evaluate_auth_no_rule():
+    assert evaluate_auth(None, {}) == (None, None, None)
+
+
+def test_evaluate_auth_rule_without_auth():
+    rule = ResponseRule(path="/x", method="GET", body="{}")
+    assert evaluate_auth(rule, {}) == (None, None, None)
+
+
+def test_evaluate_auth_header_missing():
+    rule = _rule_with_auth("X-API-Key", ["alpha"])
+    status, hdr, cnt = evaluate_auth(rule, {"content-type": "application/json"})
+    assert status == "missing"
+    assert hdr == "X-API-Key"
+    assert cnt == 1
+
+
+def test_evaluate_auth_header_present_valid():
+    rule = _rule_with_auth("X-API-Key", ["alpha", "beta"])
+    status, hdr, cnt = evaluate_auth(rule, {"x-api-key": "alpha"})
+    assert status == "ok"
+    assert hdr == "X-API-Key"
+    assert cnt == 2
+
+
+def test_evaluate_auth_header_present_invalid():
+    rule = _rule_with_auth("X-API-Key", ["alpha"])
+    status, hdr, cnt = evaluate_auth(rule, {"x-api-key": "wrong"})
+    assert status == "invalid"
+    assert hdr == "X-API-Key"
+    assert cnt == 1
+
+
+def test_evaluate_auth_case_insensitive_name():
+    rule = _rule_with_auth("X-API-Key", ["alpha"])
+    status, _, _ = evaluate_auth(rule, {"X-Api-Key": "alpha"})
+    assert status == "ok"
+
+
+def test_evaluate_auth_case_sensitive_value():
+    rule = _rule_with_auth("X-API-Key", ["alpha"])
+    status, _, _ = evaluate_auth(rule, {"x-api-key": "ALPHA"})
+    assert status == "invalid"
+
+
+def test_evaluate_auth_empty_value_is_invalid():
+    rule = _rule_with_auth("X-API-Key", ["alpha"])
+    status, _, _ = evaluate_auth(rule, {"x-api-key": ""})
+    assert status == "invalid"

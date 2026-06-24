@@ -220,3 +220,13 @@ def test_load_rule_with_invalid_auth_failure_status_raises():
             on_auth_failure={"status_code": 999, "body": "{}"},
             body="{}",
         )
+
+
+def test_load_rule_with_auth_failure_3xx_allowed():
+    rule = ResponseRule(
+        path="/x", method="GET",
+        auth={"header": "X-API-Key", "values": ["a"]},
+        on_auth_failure={"status_code": 301, "body": "{}"},
+        body="{}",
+    )
+    assert rule.on_auth_failure.status_code == 301

@@ -9,7 +9,7 @@ class AuthConfig(BaseModel):
 
 
 class AuthFailureResponse(BaseModel):
-    status_code: int = Field(default=401, ge=400, le=599)
+    status_code: int = Field(default=401, le=599)
     headers: dict[str, str] = Field(
         default_factory=lambda: {"Content-Type": "application/json"}
     )

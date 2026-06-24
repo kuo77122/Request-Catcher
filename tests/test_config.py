@@ -240,3 +240,59 @@ def test_load_rule_with_auth_failure_below_100_raises():
             on_auth_failure={"status_code": 50, "body": "{}"},
             body="{}",
         )
+
+
+MATCH_VALID_YAML = """
+rules:
+  - path: /api/x
+    method: POST
+    match:
+      user_id: u_emp_001
+    body: '{}'
+"""
+
+
+def test_load_rule_with_match():
+    from app.config import load_config
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(MATCH_VALID_YAML)
+        path = f.name
+    try:
+        rules = load_config(path)
+        assert rules[0].match == {"user_id": "u_emp_001"}
+    finally:
+        Path(path).unlink()
+
+
+def test_load_rule_with_empty_match():
+    rule = ResponseRule(path="/x", method="GET", match={}, body="{}")
+    assert rule.match == {}
+
+
+def test_load_rule_with_match_non_string_value_raises():
+    with pytest.raises(ValidationError):
+        ResponseRule(
+            path="/x", method="POST",
+            match={"count": 5},
+            body="{}",
+        )
+
+
+def test_load_rule_with_match_null_value_raises():
+    with pytest.raises(ValidationError):
+        ResponseRule(
+            path="/x", method="POST",
+            match={"user_id": None},
+            body="{}",
+        )
+
+
+def test_load_rule_with_match_and_auth():
+    rule = ResponseRule(
+        path="/x", method="GET",
+        auth={"header": "X-API-Key", "values": ["k"]},
+        match={"user_id": "u_emp_001"},
+        body="{}",
+    )
+    assert rule.auth is not None
+    assert rule.match == {"user_id": "u_emp_001"}

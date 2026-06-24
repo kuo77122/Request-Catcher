@@ -143,3 +143,243 @@ def test_captured_request_has_detail(client: TestClient):
     assert r["method"] == "PUT"
     assert r["body"] == "raw body"
     assert r["client_host"] is not None
+
+
+AUTH_MATCH_YAML = """
+rules:
+  - path: /api/secret
+    method: GET
+    auth:
+      header: X-API-Key
+      values: ["alpha", "beta"]
+    body: '{"secret":"data"}'
+    headers:
+      Content-Type: application/json
+
+  - path: /api/secret-admin
+    method: GET
+    auth:
+      header: X-API-Key
+      values: ["admin"]
+    on_auth_failure:
+      status_code: 403
+      body: '{"error":"forbidden"}'
+      headers:
+        Content-Type: application/json
+    body: '{"role":"admin"}'
+
+  - path: /api/auth/token
+    method: POST
+    match:
+      user_id: u_emp_001
+    body: '{"token":"alice"}'
+
+  - path: /api/auth/token
+    method: POST
+    match:
+      user_id: u_emp_002
+    body: '{"token":"bob"}'
+
+  - path: /api/auth/token
+    method: POST
+    body: '{"token":"default"}'
+
+  - path: /api/both
+    method: GET
+    match:
+      x: "1"
+    auth:
+      header: X-API-Key
+      values: ["alpha"]
+    body: '{"ok":true}'
+"""
+
+
+def _load_yaml_in_main(content: str) -> str:
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+    f.write(content)
+    f.close()
+    load_config(f.name)
+    return f.name
+
+
+def test_auth_valid_header_returns_normal(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        resp = client.get("/api/secret", headers={"X-API-Key": "alpha"})
+        assert resp.status_code == 200
+        assert resp.json() == {"secret": "data"}
+    finally:
+        Path(path).unlink()
+
+
+def test_auth_missing_header_returns_401(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        resp = client.get("/api/secret")
+        assert resp.status_code == 401
+        assert resp.json() == {"error": "unauthorized"}
+    finally:
+        Path(path).unlink()
+
+
+def test_auth_invalid_value_returns_401(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        resp = client.get("/api/secret", headers={"X-API-Key": "wrong"})
+        assert resp.status_code == 401
+    finally:
+        Path(path).unlink()
+
+
+def test_auth_custom_failure_response(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        resp = client.get("/api/secret-admin", headers={"X-API-Key": "wrong"})
+        assert resp.status_code == 403
+        assert resp.json() == {"error": "forbidden"}
+    finally:
+        Path(path).unlink()
+
+
+def test_auth_header_name_case_insensitive(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        resp = client.get("/api/secret", headers={"x-api-key": "alpha"})
+        assert resp.status_code == 200
+    finally:
+        Path(path).unlink()
+
+
+def test_auth_value_case_sensitive(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        resp = client.get("/api/secret", headers={"X-API-Key": "ALPHA"})
+        assert resp.status_code == 401
+    finally:
+        Path(path).unlink()
+
+
+def test_captured_request_records_auth_status_ok(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        client.get("/api/secret", headers={"X-API-Key": "alpha"})
+        data = client.get("/__requests").json()
+        assert data[0]["auth_status"] == "ok"
+        assert data[0]["auth_header"] == "X-API-Key"
+        assert data[0]["auth_values_count"] == 2
+    finally:
+        Path(path).unlink()
+
+
+def test_captured_request_records_auth_status_missing(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        client.get("/api/secret")
+        data = client.get("/__requests").json()
+        assert data[0]["auth_status"] == "missing"
+        assert data[0]["auth_header"] == "X-API-Key"
+    finally:
+        Path(path).unlink()
+
+
+def test_captured_request_records_auth_status_invalid(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        client.get("/api/secret", headers={"X-API-Key": "wrong"})
+        data = client.get("/__requests").json()
+        assert data[0]["auth_status"] == "invalid"
+    finally:
+        Path(path).unlink()
+
+
+def test_match_per_user_returns_correct_jwt(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        resp_alice = client.post(
+            "/api/auth/token", json={"user_id": "u_emp_001"}
+        )
+        resp_bob = client.post(
+            "/api/auth/token", json={"user_id": "u_emp_002"}
+        )
+        resp_other = client.post(
+            "/api/auth/token", json={"user_id": "u_emp_999"}
+        )
+        assert resp_alice.json() == {"token": "alice"}
+        assert resp_bob.json() == {"token": "bob"}
+        assert resp_other.json() == {"token": "default"}
+    finally:
+        Path(path).unlink()
+
+
+def test_match_query_string(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        resp = client.get("/api/identity/resolve?platform=line")
+        # No rule for that path in AUTH_MATCH_YAML, falls through to catch-all
+        assert resp.status_code == 200
+    finally:
+        Path(path).unlink()
+
+
+def test_match_no_match_block_works_as_before(client: TestClient):
+    # A rule without match fires on path/method only
+    yaml = """
+rules:
+  - path: /api/anything
+    method: POST
+    body: '{"ok":true}'
+"""
+    path = _load_yaml_in_main(yaml)
+    try:
+        resp = client.post("/api/anything", json={"any": "data"})
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+    finally:
+        Path(path).unlink()
+
+
+def test_match_and_auth_combined_both_required(client: TestClient):
+    path = _load_yaml_in_main(AUTH_MATCH_YAML)
+    try:
+        # match hits, auth valid -> 200
+        resp_ok = client.get(
+            "/api/both?x=1", headers={"X-API-Key": "alpha"}
+        )
+        assert resp_ok.status_code == 200
+        # match hits, auth invalid -> 401
+        resp_no_auth = client.get("/api/both?x=1")
+        assert resp_no_auth.status_code == 401
+        # match misses, rule does not match -> falls through to catch-all
+        resp_no_match = client.get(
+            "/api/both?x=2", headers={"X-API-Key": "alpha"}
+        )
+        # catch-all returns 200 with the JSON acknowledgment
+        assert resp_no_match.status_code == 200
+        assert "no rule matched" in resp_no_match.json()["message"]
+    finally:
+        Path(path).unlink()
+
+
+def test_captured_request_no_rule_matched_auth_status_null(client: TestClient):
+    client.get("/no-rule-here")
+    data = client.get("/__requests").json()
+    assert data[0]["auth_status"] is None
+    assert data[0]["auth_header"] is None
+    assert data[0]["auth_values_count"] is None
+
+
+def test_captured_request_rule_without_auth_status_null(client: TestClient):
+    yaml = """
+rules:
+  - path: /api/anything
+    method: POST
+    body: '{}'
+"""
+    path = _load_yaml_in_main(yaml)
+    try:
+        client.post("/api/anything", json={})
+        data = client.get("/__requests").json()
+        assert data[0]["auth_status"] is None
+    finally:
+        Path(path).unlink()

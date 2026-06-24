@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
-from typing import Optional, Union
+from typing import Optional
 
 
 class AuthConfig(BaseModel):
@@ -9,7 +9,7 @@ class AuthConfig(BaseModel):
 
 
 class AuthFailureResponse(BaseModel):
-    status_code: int = Field(default=401, le=599)
+    status_code: int = Field(default=401, ge=100, le=599)
     headers: dict[str, str] = Field(
         default_factory=lambda: {"Content-Type": "application/json"}
     )

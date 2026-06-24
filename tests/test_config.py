@@ -230,3 +230,13 @@ def test_load_rule_with_auth_failure_3xx_allowed():
         body="{}",
     )
     assert rule.on_auth_failure.status_code == 301
+
+
+def test_load_rule_with_auth_failure_below_100_raises():
+    with pytest.raises(ValidationError):
+        ResponseRule(
+            path="/x", method="GET",
+            auth={"header": "X-API-Key", "values": ["a"]},
+            on_auth_failure={"status_code": 50, "body": "{}"},
+            body="{}",
+        )

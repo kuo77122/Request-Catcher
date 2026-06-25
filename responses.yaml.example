@@ -30,22 +30,51 @@ rules:
   # Contracts: Naya/api-spec.md §3.1–3.2. Plugin design B + identity flow.
 
   # GET /api/v1/identity/resolve?platform=line&platform_user_id=Uxxxxx
-  # Returns a known, active employee (drives the policy "pass" branch).
+  # Returns a known, active ADMIN user (drives the policy "pass" branch).
+  # user_id kept "u_emp_001" so portal.e2e.test.ts stays green (it doesn't assert role).
   # For the "unknown user" case (auto_create), change status_code to 404.
   - path_pattern: /api/v1/identity/resolve.*
     method: GET
     status_code: 200
     headers:
       Content-Type: application/json
-    body: '{"user_id": "u_emp_001", "type": "employee", "role": "member", "department": "業務部", "permissions": ["knowledge:read", "order:read"]}'
+    body: '{"user_id": "u_emp_001", "type": "employee", "role": "admin", "department": "管理部", "permissions": ["knowledge:read", "knowledge:write", "order:read", "conversation:read", "admin"]}'
 
-  # POST /api/v1/auth/token  (header X-API-Key, body {user_id}) → per-user JWT (design B)
+  # POST /api/v1/auth/token  (exchange-only gate)
+  #   header X-API-Key（mock auth）, body { platform, platform_user_id, channel_id }
+  #   → 驗 key + 依 platform_user_id 簽發 per-user JWT。
+  # 驗證情境：對 key + 已知 user → 200+JWT(allow)；對 key + 未知 user → 404(block)；錯 key → 401(block)。
+  # ⚠️ plugin 需設環境變數 NAYA_PORTAL_API_KEY=naya-dev-key（否則送空 key → 401）。
+
+  # (1) 已知 user（key 正確 + platform_user_id 命中）→ 200 + per-user JWT
   - path: /api/v1/auth/token
     method: POST
+    auth:
+      header: X-API-Key
+      values: ["naya-dev-key"]
+    on_auth_failure:
+      status_code: 401
+      body: '{"error": "invalid api key"}'
+    match:
+      platform_user_id: U73632230982d3bb5e099db5242a573e0
     status_code: 200
     headers:
       Content-Type: application/json
-    body: '{"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidV9lbXBfMDAxIiwicm9sZSI6Im1lbWJlciIsImRlcGFydG1lbnQiOiLmpa3li5npg6giLCJwZXJtaXNzaW9ucyI6WyJrbm93bGVkZ2U6cmVhZCIsIm9yZGVyOnJlYWQiXSwiZXhwIjoxNzk4NzYxNTk5fQ.MOCK_SIGNATURE_not_verified", "expires_at": "2026-12-31T23:59:59Z"}'
+    body: '{"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidV9lbXBfMDAxIiwicm9sZSI6ImFkbWluIiwiZGVwYXJ0bWVudCI6IueuoeeQhumDqCIsInBlcm1pc3Npb25zIjpbImtub3dsZWRnZTpyZWFkIiwia25vd2xlZGdlOndyaXRlIiwib3JkZXI6cmVhZCIsImFkbWluIl0sImV4cCI6MTc5ODc2MTU5OX0.MOCK_SIGNATURE_not_verified", "expires_at": "2026-12-31T23:59:59Z"}'
+
+  # (2) key 正確但 user 未命中（unknown/unbound）→ 404 → plugin gate block
+  - path: /api/v1/auth/token
+    method: POST
+    auth:
+      header: X-API-Key
+      values: ["naya-dev-key"]
+    on_auth_failure:
+      status_code: 401
+      body: '{"error": "invalid api key"}'
+    status_code: 404
+    headers:
+      Content-Type: application/json
+    body: '{"error": "unknown or unbound user"}'
 
   # POST /api/v1/identity/bind  {platform, platform_user_id, invite_code}
   - path: /api/v1/identity/bind
@@ -62,36 +91,3 @@ rules:
     headers:
       Content-Type: application/json
     body: '{"code": "NAYA-7F3K-9Q2X", "expires_at": "2026-12-31T23:59:59Z"}'
-
-  # ── Examples of per-rule auth and conditional match ───────────────
-
-  # Rule requiring an auth header (X-API-Key)
-  - path: /api/secret
-    method: GET
-    auth:
-      header: X-API-Key
-      values: ["alpha-key", "beta-key"]
-    body: '{"secret":"visible only with a valid key"}'
-
-  # Per-user JWT — different match.user_id returns a different token
-  - path: /api/v1/auth/token
-    method: POST
-    match:
-      user_id: u_emp_001
-    body: '{"token":"<jwt-for-alice>"}'
-
-  - path: /api/v1/auth/token
-    method: POST
-    match:
-      user_id: u_emp_002
-    body: '{"token":"<jwt-for-bob>"}'
-
-  # Combined: conditional match + auth
-  - path: /api/v1/identity/resolve
-    method: GET
-    match:
-      platform: line
-    auth:
-      header: X-API-Key
-      values: ["alpha-key"]
-    body: '{"user_id":"u_emp_001","platform":"line"}'
